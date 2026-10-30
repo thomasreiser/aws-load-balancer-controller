@@ -47,6 +47,11 @@ type enqueueRequestsForTargetGroupConfigurationEvent struct {
 }
 
 func (h *enqueueRequestsForTargetGroupConfigurationEvent) Create(ctx context.Context, e event.TypedCreateEvent[*elbv2gw.TargetGroupConfiguration], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if e.IsInInitialList {
+		// Existing Gateways receive their own initial events and reconcile
+		// against the synced cache, so this fan-out is redundant.
+		return
+	}
 	tgconfigNew := e.Object
 	h.logger.V(1).Info("enqueue targetgroupconfiguration create event", "targetgroupconfiguration", tgconfigNew.Name)
 	h.enqueueImpactedObject(ctx, tgconfigNew, queue)
@@ -102,7 +107,7 @@ func (h *enqueueRequestsForTargetGroupConfigurationEvent) enqueueImpactedObject(
 			return
 		}
 
-		impactedRoutes := getImpactedTCPRoutes(tcpRouteList, tgconfig)
+		impactedRoutes := GetImpactedTCPRoutes(tcpRouteList, tgconfig)
 		for i := range impactedRoutes {
 			h.tcpRouteEventChan <- event.TypedGenericEvent[*gwv1.TCPRoute]{
 				Object: impactedRoutes[i],
@@ -140,7 +145,8 @@ func (h *enqueueRequestsForTargetGroupConfigurationEvent) enqueueGatewaysReferen
 	}
 }
 
-func getImpactedTCPRoutes(list *gwv1.TCPRouteList, tgconfig *elbv2gw.TargetGroupConfiguration) []*gwv1.TCPRoute {
+// GetImpactedTCPRoutes returns routes referencing the target Gateway once each.
+func GetImpactedTCPRoutes(list *gwv1.TCPRouteList, tgconfig *elbv2gw.TargetGroupConfiguration) []*gwv1.TCPRoute {
 	seen := sets.Set[types.NamespacedName]{}
 	res := make([]*gwv1.TCPRoute, 0)
 
